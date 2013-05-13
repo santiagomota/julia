@@ -10,15 +10,13 @@ end
 function cholfact!{T<:BlasFloat}(A::StridedMatrix{T}, uplo::Symbol)
     uplochar = string(uplo)[1]
     C, info = LAPACK.potrf!(uplochar, A)
-    if info > 0 throw(LinAlg.LAPACK.PosDefException(info)) end
+    if info > 0 throw(PosDefException(info)) end
     Cholesky(uplochar == 'L' ? tril(C) : triu(C), uplochar)
 end
-cholfact{T<:BlasFloat}(A::StridedMatrix{T}, uplo::Symbol) = cholfact!(copy(A), uplo)
 cholfact!{T<:BlasFloat}(A::StridedMatrix{T}) = cholfact!(A, :U)
-cholfact{T<:BlasFloat}(A::StridedMatrix{T}) = cholfact!(copy(A), :U)
-cholfact(x::Number) = imag(x) == 0 && real(x) > 0 ? Cholesky(fill(sqrt(x), 1, 1), 'U') : throw(LinAlg.LAPACK.PosDefException(1))
-cholfact(A::StridedMatrix, args...) = cholfact!(float(A), args...)
-cholfact!(A::StridedMatrix, args...) = cholfact!(float(A), args...)
+cholfact(x::Number) = imag(x) == 0 && real(x) > 0 ? Cholesky(fill(sqrt(x), 1, 1), 'U') : throw(PosDefException(1))
+cholfact(A::StridedMatrix, args...) = cholfact!(copy(A), args...)
+cholfact!{T<:Integer}(A::StridedMatrix{T}, args...) = cholfact!(float(A), args...)
 
 chol(A::Union(Number, StridedMatrix), uplo::Symbol) = cholfact(A, uplo)[uplo]
 chol(A::Union(Number, StridedMatrix)) = cholfact(A, :U)[:U]
@@ -71,12 +69,10 @@ function CholeskyPivoted{T<:BlasFloat}(A::StridedMatrix{T}, uplo::Char, tol::Rea
 end
 
 cholpfact!(A::StridedMatrix, uplo::Symbol, tol::Real) = CholeskyPivoted(A, string(uplo)[1], tol)
-cholpfact(A::StridedMatrix, uplo::Symbol, tol::Real) = cholpfact!(copy(A), uplo, tol)
 cholpfact!(A::StridedMatrix, tol::Real) = cholpfact!(A, :U, tol)
-cholpfact(A::StridedMatrix, tol::Real) = cholpfact(A, :U, tol)
 cholpfact!(A::StridedMatrix) = cholpfact!(A, -1.)
-cholpfact(A::StridedMatrix) = cholpfact(A, -1.)
-cholpfact{T<:Int}(A::StridedMatrix{T}, args...) = cholpfact(float(A), args...)
+cholpfact(A::StridedMatrix, args...) = cholpfact!(copy(A), args...)
+cholpfact!{T<:Integer}(A::StridedMatrix{T}, args...) = cholpfact!(float(A), args...)
 
 size(C::CholeskyPivoted) = size(C.UL)
 size(C::CholeskyPivoted,d::Integer) = size(C.UL,d)
@@ -137,12 +133,9 @@ function LU{T<:BlasFloat}(A::StridedMatrix{T})
     LU{T}(factors, ipiv, info)
 end
 lufact!{T<:BlasFloat}(A::StridedMatrix{T}) = LU(A)
-lufact{T<:BlasFloat}(A::StridedMatrix{T}) = lufact!(copy(A))
-
+lufact(A::StridedMatrix) = lufact!(copy(A))
 lufact(x::Number) = LU(fill(x, 1, 1), [1], x == 0 ? 1 : 0)
-
-lufact(A::StridedMatrix) = lufact!(float(A))
-lufact!(A::StridedMatrix) = lufact!(float(A))
+lufact!{T<:Integer}(A::StridedMatrix{T}) = lufact!(float(A))
 
 function lu(A::Union(Number, StridedMatrix))
     F = lufact(A)
@@ -183,7 +176,7 @@ function det{T}(A::LU{T})
     prod(diag(A.factors)) * (bool(sum(A.ipiv .!= 1:n) % 2) ? -one(T) : one(T))
 end
 
-function (\)(A::LU, B::StridedVecOrMat)
+function (\){T<:BlasFloat}(A::LU{T}, B::StridedVecOrMat{T})
     if A.info > 0; throw(SingularException(A.info)); end
     LAPACK.getrs!('N', A.factors, A.ipiv, copy(B))
 end
@@ -203,11 +196,10 @@ end
 QR{T<:BlasFloat}(A::StridedMatrix{T}) = QR(LAPACK.geqrt3!(A)...)
 
 qrfact!{T<:BlasFloat}(A::StridedMatrix{T}) = QR(A)
-qrfact{T<:BlasFloat}(A::StridedMatrix{T}) = qrfact!(copy(A))
 qrfact(x::Integer) = qrfact(float(x))
 qrfact(x::Number) = QR(fill(one(x), 1, 1), fill(x, 1, 1))
-qrfact(A::StridedMatrix) = qrfact!(float(A))
-qrfact!(A::StridedMatrix) = qrfact(A)
+qrfact(A::StridedMatrix) = qrfact!(copy(A))
+qrfact!{T<:Integer}(A::StridedMatrix{T}) = qrfact!(float(A))
 
 function qr(A::Union(Number, StridedMatrix), thin::Bool)
     F = qrfact(A)
@@ -252,8 +244,8 @@ function *{T<:BlasFloat}(A::QRPackedQ{T}, B::StridedVecOrMat{T})
     end
     LAPACK.gemqrt!('L', 'N', A.vs, A.T, Bc)
 end
-Ac_mul_B(A::QRPackedQ, B::StridedVecOrMat) = LAPACK.gemqrt!('L', iscomplex(A.vs[1]) ? 'C' : 'T', A.vs, A.T, copy(B))
-*(A::StridedVecOrMat, B::QRPackedQ) = LAPACK.gemqrt!('R', 'N', B.vs, B.T, copy(A))
+Ac_mul_B{T<:BlasFloat}(A::QRPackedQ{T}, B::StridedVecOrMat{T}) = LAPACK.gemqrt!('L', iscomplex(A.vs[1]) ? 'C' : 'T', A.vs, A.T, copy(B))
+(*){T<:BlasFloat}(A::StridedVecOrMat{T}, B::QRPackedQ{T}) = LAPACK.gemqrt!('R', 'N', B.vs, B.T, copy(A))
 function A_mul_Bc{T<:BlasFloat}(A::StridedVecOrMat{T}, B::QRPackedQ{T})
     m = size(A, 1)
     n = size(A, 2)
@@ -284,6 +276,7 @@ type QRPivoted{T} <: Factorization{T}
 end
 
 qrpfact!{T<:BlasFloat}(A::StridedMatrix{T}) = QRPivoted{T}(LAPACK.geqp3!(A)...)
+qrpfact{T<:Integer}(A::StridedMatrix{T}) = qrpfact!(float(A))
 qrpfact(A::StridedMatrix) = qrpfact!(copy(A))
 
 function qrp(A::StridedMatrix, thin::Bool)
@@ -310,8 +303,8 @@ function getindex{T<:BlasFloat}(A::QRPivoted{T}, d::Symbol)
     error("No such type field")
 end
 
-(\)(A::QRPivoted, B::StridedVector) = (Triangular(A[:R])\(A[:Q]'B)[1:size(A, 2)])[invperm(A.jpvt)]
-(\)(A::QRPivoted, B::StridedMatrix) = (Triangular(A[:R])\(A[:Q]'B)[1:size(A, 2),:])[invperm(A.jpvt),:]
+(\){T<:BlasFloat}(A::QRPivoted{T}, B::StridedVector{T}) = (Triangular(A[:R])\(A[:Q]'B)[1:size(A, 2)])[invperm(A.jpvt)]
+(\){T<:BlasFloat}(A::QRPivoted{T}, B::StridedMatrix{T}) = (Triangular(A[:R])\(A[:Q]'B)[1:size(A, 2),:])[invperm(A.jpvt),:]
 
 type QRPivotedQ{T}  <: AbstractMatrix{T}
     hh::Matrix{T}                       # Householder transformations and R
@@ -346,8 +339,8 @@ function *{T<:BlasFloat}(A::QRPivotedQ{T}, B::StridedVecOrMat{T})
     end
     LAPACK.ormqr!('L', 'N', A.hh, A.tau, Bc)
 end
-Ac_mul_B(A::QRPivotedQ, B::StridedVecOrMat) = LAPACK.ormqr!('L', iscomplex(A.hh[1]) ? 'C' : 'T', A.hh, A.tau, copy(B))
-*(A::StridedVecOrMat, B::QRPivotedQ) = LAPACK.ormqr!('R', 'N', B.hh, B.tau, copy(A))
+Ac_mul_B{T<:BlasFloat}(A::QRPivotedQ{T}, B::StridedVecOrMat{T}) = LAPACK.ormqr!('L', iscomplex(A.hh[1]) ? 'C' : 'T', A.hh, A.tau, copy(B))
+(*){T<:BlasFloat}(A::StridedVecOrMat{T}, B::QRPivotedQ{T}) = LAPACK.ormqr!('R', 'N', B.hh, B.tau, copy(A))
 function A_mul_Bc{T<:BlasFloat}(A::StridedVecOrMat{T}, B::QRPivotedQ{T})
     m = size(A, 1)
     n = size(A, 2)
@@ -432,7 +425,7 @@ function eigfact!{T<:BlasFloat}(A::StridedMatrix{T})
 end
 
 eigfact(A::StridedMatrix) = eigfact!(copy(A))
-eigfact{T<:Integer}(x::StridedMatrix{T}) = eigfact(float64(x))
+eigfact!{T<:Integer}(x::StridedMatrix{T}) = eigfact!(float(x))
 eigfact(x::Number) = Eigen([x], fill(one(x), 1, 1))
 
 function eig(A::Union(Number, StridedMatrix))
@@ -506,10 +499,9 @@ function svdvals!{T<:BlasFloat}(A::StridedMatrix{T})
     if m == 0 || n == 0 return zeros(T, 0) end
     return LAPACK.gesdd!('N', A)[2]
 end
-svdvals{T<:BlasFloat}(A::StridedMatrix{T}) = svdvals!(copy(A))
+svdvals(A::StridedMatrix) = svdvals!(copy(A))
 svdvals(x::Number) = [x]
-svdvals(A::StridedMatrix) = svdvals!(float(A))
-svdvals!(A::StridedMatrix) = svdvals!(float(A))
+svdvals!{T<:Integer}(A::StridedMatrix{T}) = svdvals!(float(A))
 
 # SVD least squares
 function \{T<:BlasFloat}(A::SVD{T}, B::StridedVecOrMat{T})
@@ -592,7 +584,7 @@ type Schur{Ty<:BlasFloat} <: Factorization{Ty}
 end
 
 schurfact!{T<:BlasFloat}(A::StridedMatrix{T}) = Schur(LinAlg.LAPACK.gees!('V', A)...)
-schurfact!{T<:Integer}(A::StridedMatrix{T}) = schurfact!(schurfact!(float(A)))
+schurfact!{T<:Integer}(A::StridedMatrix{T}) = schurfact!(float(A))
 schurfact(A::StridedMatrix) = schurfact!(copy(A))
 
 function getindex(F::Schur, d::Symbol)
@@ -617,7 +609,7 @@ type GeneralizedSchur{Ty<:BlasFloat} <: Factorization{Ty}
 end
 
 schurfact!(A::StridedMatrix, B::StridedMatrix) = GeneralizedSchur(LinAlg.LAPACK.gges!('V', 'V', A, B)...)
-schurfact!{T<:Integer}(A::StridedMatrix{T}, B::StridedMatrix{T}) = schurfact!(schurfact!(float(A), float(B)))
+schurfact!{T<:Integer}(A::StridedMatrix{T}, B::StridedMatrix{T}) = schurfact!(float(A), float(B))
 schurfact(A::StridedMatrix, B::StridedMatrix) = schurfact!(copy(A), copy(B))
 
 function getindex(F::GeneralizedSchur, d::Symbol)
